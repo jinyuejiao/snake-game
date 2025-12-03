@@ -1,3 +1,4 @@
+```mermaid
 graph TD
     %% 用户接入层
     User[商户用户] -->|Web访问| FE_Web[Vercel: Web管理端]
