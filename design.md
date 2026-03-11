@@ -1,55 +1,30 @@
-````mermaid`
-graph TD
-    %% 用户接入层
-    User[商户用户] -->|Web访问| FE_Web[Vercel: Web管理端]
-    User -->|侧边栏插件| FE_Ext[Chrome插件: 微信/WhatsApp助手]
+```mermaid
+flowchart TD
+    Start([开始]) --> GetTask{获取新任务}
     
-    %% 外部数据源
-    Customer[C端客户] -->|WhatsApp消息| WA_API[WhatsApp API]
-    External[外部数据] -->|爬虫/API| Mkt_Data[Google Trends/节假日数据]
-
-    %% 后端服务层 (Render/Railway)
-    subgraph "Backend Services (Python/FastAPI)"
-        Gateway[API Gateway]
-        
-        %% 核心业务模块
-        Service_CRM[CRM服务: 档案/订单]
-        Service_BI[BI预测服务: 排产/爆品]
-        Service_Mkt[营销服务: 方案生成/激活]
-        
-        %% AI Agent层
-        Agent_NLU[意图识别 Agent]
-        Agent_Extract[信息抽取 Agent]
-        Agent_Reason[推理预测 Agent]
-        
-        Gateway --> Service_CRM
-        Gateway --> Service_BI
-        Gateway --> Service_Mkt
-        
-        Service_CRM <--> Agent_NLU
-        Service_CRM <--> Agent_Extract
-        Service_BI <--> Agent_Reason
-        Service_Mkt <--> Agent_Reason
-    end
-
-    %% 数据存储层 (Supabase)
-    subgraph "Data Layer (Supabase)"
-        DB_SQL[(PostgreSQL: 业务数据)]
-        DB_Vec[(pgvector: 向量知识库)]
-        Auth[Supabase Auth]
-        Storage[Supabase Storage: PDF/图片]
-    end
-
-    %% 连接关系
-    FE_Web --> Gateway
-    FE_Ext --> Gateway
-    WA_API --> Gateway
-    Mkt_Data --> Gateway
-
-    Service_CRM <--> DB_SQL
-    Service_BI <--> DB_SQL
-    Service_Mkt <--> DB_SQL
+    %% 任务分类
+    GetTask --> Type{任务来源?}
     
-    Agent_Reason <--> DB_Vec
-    Agent_Reason <--> LLM[大模型 API (OpenAI/DeepSeek)]
-    ````
+    %% 路径1：VTAC实时路径
+    Type -- VTAC实时流 --> V_Queue{VTAC队列 < 20?}
+    V_Queue -- 满 --> DeDup{5s同点位去重}
+    DeDup -- 重复 --> Drop1([丢弃低置信度图])
+    DeDup -- 新点位 --> ForceOut[直接输出VTAC结果至平台\n不经过VQA二次过滤]
+    
+    V_Queue -- 未满 --> V_Execute[进入VTAC高优先级队列]
+    
+    %% 路径2：平台提交路径
+    Type -- 平台API提交 --> P_Queue{平台队列 < 20?}
+    P_Queue -- 满 --> Error[返回: 系统忙/Busy]
+    P_Queue -- 未满 --> P_Execute[进入普通优先级队列]
+    
+    %% 执行引擎
+    V_Execute --> Engine{VQA 引擎 1s/张}
+    P_Execute --> Engine
+    Engine --> Priority{判定优先级}
+    Priority -- 实时任务优先 --> Out1([输出: 经VQA过滤后的报警])
+    Priority -- 无实时任务时 --> Out2([输出: 经VQA分析的图片结论])
+
+    style ForceOut fill:#f96,stroke:#333,stroke-width:2px
+    style DeDup fill:#bbf,stroke:#333
+```
